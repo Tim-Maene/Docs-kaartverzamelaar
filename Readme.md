@@ -1,8 +1,8 @@
 # Propositie: Card Manager
 
 > Status: **concept**, ter bespreking
-> Opgesteld door: Tim Maene
-> Datum: 17/10/2026
+> Opgesteld door: _[naam]_
+> Datum: _[datum]_
 
 Alles wat als **[keuze]** is gemarkeerd, moeten we samen beslissen. Onderaan staat een overzicht van de besluiten die we nodig hebben. Bij elke keuze staat een voorstel, maar dat is een startpunt voor de discussie.
 
@@ -50,7 +50,7 @@ Een kaartbeheerder voor verzamelkaarten, te beginnen met **Magic: The Gathering*
 | Fase | Inhoud |
 |---|---|
 | 1. Fundament | Monorepo, Docker Compose, database, API-skelet met OpenAPI, CI |
-| 2. Data | Importer voor Scryfall-bulkdata (kaarten, sets, prijzen) |
+| 2. Data | Importer voor [Scryfall](https://scryfall.com/docs/api)-bulkdata (kaarten, sets, prijzen) |
 | 3. Web | Zoeken, kaartdetail, accounts, collectiebeheer |
 | 4. Deployment | Eerste versie online, HTTPS, automatische deploys |
 | 5. App | Mobiele app met camera-toegang |
@@ -71,6 +71,7 @@ Elke fase levert iets werkends op, zodat we steeds een resultaat hebben om te to
 | Mobiele app | **[keuze]** Vue + Capacitor | 5.2 |
 | API-server | **[keuze]** Go (alternatieven: Laravel, zie 5.3.1; .NET, zie 5.3.2) | 5.3 |
 | Database | **[keuze]** PostgreSQL | 5.4 |
+| Databron (Magic) | [Scryfall API](https://scryfall.com/docs/api), via bulkdata | 9 |
 | Zoeken en cache | PostgreSQL zelf, later eventueel Meilisearch of Redis | 5.5 |
 | Scanner | Python-microservice (OpenCV, FastAPI) | 8 |
 | Deployment | **[keuze]** VPS + Docker Compose | 6 |
@@ -487,11 +488,63 @@ Waar draait de scanner?
 
 ## 9. Databron en juridische punten
 
-- **Bron:** Scryfall, via de dagelijkse bulkdata, lokaal gecachet in onze eigen database.
-- **Rate limits:** de zoek-endpoints zijn beperkt tot 2 requests per seconde, overige endpoints tot 10 per seconde. Bulkdata en bestanden op `*.scryfall.io` hebben geen rate limits.
-- **Regels:** geen betaalmuur om Scryfall-data, geen herpublicatie of proxy van hun data, en niet impliceren dat data van een ander spel komt dan Magic. Lees de volledige voorwaarden na voor we iets publiek maken.
-- **Kaartafbeeldingen** zijn eigendom van Wizards of the Coast. Kijk naar hun Fan Content Policy bij publieke release.
+### 9.1 Waarom Scryfall
+
+[Scryfall](https://scryfall.com/docs/api) biedt een REST-achtige API waarmee je de kaartdata van de gewone site in een makkelijk te verwerken formaat kunt ophalen. De API staat op `https://api.scryfall.com`.
+
+Binnen het [Fan Content Policy van Wizards of the Coast](https://company.wizards.com/fancontentpolicy) stelt Scryfall zijn kaartdata en afbeeldingendatabase **gratis** beschikbaar, vooral om extra Magic-software te maken, onderzoek te doen of community-content te maken. Een kaartbeheerder voor Magic past daar goed in.
+
+Ook voor ons nuttig:
+
+- Bulkdata om de hele database lokaal te laden, zonder rate limits
+- Kaarten, sets, prijzen, rulings en afbeeldingen op één plek
+- Geen API-sleutel of betaald abonnement nodig
+
+### 9.2 Technische eisen voor onze requests
+
+- Alleen **HTTPS** (TLS 1.2 of hoger); gewone HTTP wordt niet geaccepteerd.
+- Alle responses zijn **UTF-8**, met ook niet-ASCII-tekens in veel velden. Onze database en code moeten daar goed mee omgaan.
+- Elke request naar `api.scryfall.com` moet een **`User-Agent`**- en een **`Accept`**-header bevatten.
+  - De `User-Agent` moet **kloppen met ons gebruik** en de naam van onze applicatie bevatten, bijvoorbeeld `CardManager/1.0`. We mogen de HTTP-bibliotheek de header niet zelf laten kiezen.
+  - Voor de `Accept`-header is een algemene voorkeur genoeg, zoals `application/json;q=0.9,*/*;q=0.8`.
+  - Doen we requests vanuit JavaScript in de browser, dan laten we de `User-Agent` van de browser ongemoeid.
+- **Rate limits** (zie de [documentatie over rate limits](https://scryfall.com/docs/api/rate-limits)): de zoek-endpoints zijn beperkt tot 2 requests per seconde, overige endpoints tot 10 per seconde. Bulkdata en bestanden op `*.scryfall.io` hebben geen rate limits.
+- **Praktisch gevolg:** onze importer (en later de scanner) leest de **bulkdata**, en we doen geen live requests per gebruiker op de zoekendpoints.
+
+### 9.3 Regels voor het gebruik van de data
+
+Volgens de documentatie moeten we deze regels volgen:
+
+| Regel | Wat het voor ons betekent |
+|---|---|
+| Geen Scryfall-logo's en de naam Scryfall niet gebruiken op een manier die suggereert dat zij ons of ons product steunen | Geen Scryfall-logo in de app; bronvermelding formuleren zonder "officieel" of "in samenwerking met" |
+| Geen **betaalmuur** om de Scryfall-data: geen betalingen, enquêtes, abonnementen, beoordelingen of verplichte chatservers/kanalen als voorwaarde | Heeft de app accounts, dan moet iedereen de kaartdata anoniem of met een gratis account kunnen gebruiken. Betaalde extra's mogen alleen niet de toegang tot de Scryfall-data zelf blokkeren |
+| Geen **nieuwe spellen** maken met Scryfall-data en niet laten lijken dat de data van een ander spel komt dan Magic | Scryfall alleen voor onze Magic-tabellen; voor andere spellen zijn aparte databronnen nodig (zie datamodel in sectie 7) |
+| Niet simpelweg **herverpakken, herpubliceren of proxyen**; onze software moet extra waarde bieden | Onze API mag geen doorgeefluik zijn voor Scryfall-data. Collectiebeheer, scanner, prijsgeschiedenis en deckbouwer zijn onze toegevoegde waarde |
+
+### 9.4 Regels voor kaartafbeeldingen
+
+Wanneer we afbeeldingen van Scryfall tonen:
+
+- Het **copyright en de naam van de artiest** op de kaart mogen niet worden afgedekt, bijgesneden of weggelaten.
+- **Niet vervormen, scheeftrekken of uitrekken.**
+- **Niet vervagen, verscherpen, ontkleuren of kleurverschuiven.**
+- **Geen eigen watermerken, stempels of logo's** op kaartafbeeldingen.
+- De afbeeldingen **niet zo plaatsen** dat het lijkt alsof iemand anders dan Wizards of the Coast de kaart maakte, of dat de kaart uit een ander spel komt.
+- Bij gebruik van de **`art_crop`** moeten we de artiest en het copyright elders in dezelfde interface vermelden, of de volledige kaartafbeelding elders in die interface tonen.
+
+Let op bij de scanner: deze regels gaan over het **tonen** van afbeeldingen. Als we afbeeldingen intern bewerken (bijvoorbeeld schalen of grijswaarden voor image matching), tonen we die bewerkte versies niet aan gebruikers. Twijfel je, controleer dan de documentatie of vraag het na.
+
+Bij herhaaldelijk verkeerd of misleidend gebruik van data of afbeeldingen kan Scryfall onze toegang beperken of blokkeren.
+
+### 9.5 Overige punten
+
+- **Kaartafbeeldingen** blijven eigendom van Wizards of the Coast. Lees ook het [Fan Content Policy](https://company.wizards.com/fancontentpolicy) bij een publieke release.
 - **Geen Scryfall-data of kaartafbeeldingen in de repo.** Verwijs ernaar of laat de importer ze ophalen.
+- Lees de volledige [API-documentatie](https://scryfall.com/docs/api) opnieuw voor we iets publiek maken; regels kunnen veranderen.
+
+### 9.6 Licentie
+
 - **Licentie:** **[keuze]**
 
 | Optie | Opmerking |
