@@ -75,6 +75,7 @@ Elke fase levert iets werkends op, zodat we steeds een resultaat hebben om te to
 | Scanner | Python-microservice (OpenCV, FastAPI) | 8 |
 | Deployment | **[keuze]** VPS + Docker Compose | 6 |
 | CI/CD | GitHub Actions | 6.4 |
+| Architectuur en codeerafspraken | **[keuze]** modulaire monoliet + aparte scanner, DDD-lite, code first met migraties | 5.6 |
 
 ### 5.1 Web-frontend
 
@@ -266,6 +267,139 @@ Waar InfluxDB wél interessant voor is bij ons project:
 
 Wat het kost: een extra dienst om te draaien, te back-uppen en te leren. **Voorstel:** prijsgeschiedenis eerst in een gewone PostgreSQL-tabel (met een index op kaart + datum). Pas als die tabel echt te groot of te traag wordt, kijken we naar TimescaleDB (blijft in PostgreSQL) of InfluxDB.
 
+### 5.6 Architectuur en codeerafspraken
+
+We moeten vooraf afspreken **hoe** we coderen, anders schrijft ieder zijn eigen stijl en wordt de code moeilijk samen te voegen. Dit zijn de keuzes die we moeten maken. Meer structuur is niet automatisch beter: voor onze app (veel CRUD, een import, een scanner) is te veel architectuur een risico.
+
+#### 5.6.1 Codestructuur en architectuurstijl
+
+| Optie | Wat het inhoudt | Voordelen | Nadelen |
+|---|---|---|---|
+| **Framework-standaard** (bijvoorbeeld de basis-mapstructuur van Laravel, MVC) | We volgen de conventies van het framework | Snel, iedereen kent het, weinig overleg nodig | Business-logica belandt makkelijk in controllers en models, wordt groot en moeilijk testbaar |
+| **Gelaagd** (controller → service → repository) | Duidelijke lagen met vaste verantwoordelijkheden | Eenvoudig te begrijpen, goed te testen | Kan veel doorgeefcode opleveren, lagen worden snel "anemisch" |
+| **Vertical slices / feature-mappen** | Alles voor één feature (endpoint, logica, data) staat samen | Minder springen tussen mappen, goed voor kleine teams | Minder strikt, gedeelde logica moet bewust worden geplaatst |
+| **Clean / Onion / Hexagonal** | Domein in het midden, afhankelijkheden wijzen naar binnen, infrastructuur aan de rand | Domeinlogica onafhankelijk van framework en database, goed testbaar | Meer mappen, interfaces en opzet, overkill voor simpele CRUD |
+| **DDD** (Domain-Driven Design) | Modelleren rond het domein: entities, value objects, aggregates, domeinevents; en bounded contexts per deelgebied | Sterke structuur, laat vakkennis zien, goed voor complexe regels | Veel concepten en ceremonie, weinig nut waar de logica simpel is, leercurve voor het team |
+| **CQRS** (opdrachten en queries gescheiden) | Aparte modellen voor schrijven en lezen | Duidelijke intentie, schaalbaar | Extra complexiteit; gebruik hooguit de lichte vorm (aparte handlers) |
+
+**Past DDD bij ons?**
+
+Onze app is grotendeels CRUD, dus **volledige DDD is waarschijnlijk te zwaar**. Een lichte vorm ("DDD-lite") past wel goed:
+
+- **Bounded contexts** zijn hier natuurlijk: *Catalog* (kaarten, sets, printings, import), *Collection* (collecties en entries), *Scanning* (scanaanvragen), *Pricing* (prijzen en geschiedenis), *Identity* (gebruikers). Dat sluit aan bij onze wens om later meer spellen toe te voegen: de Catalog-context krijgt dan een adapter per spel.
+- **Waar echte regels zijn** (bijvoorbeeld "een collectie-entry heeft een hoeveelheid, staat en foil-status"), gebruiken we entities en value objects. Voor simpele lijsten en zoekacties niet.
+- **Spelregel:** we voegen een patroon alleen toe als het een concreet probleem oplost, en we leggen de keuze vast (zie 5.6.6).
+
+**Voorstel per stack**
+
+| Stack | Voorgestelde structuur |
+|---|---|
+| **Laravel** | De standaard mapstructuur, aangevuld met een `app/Actions` (of `Services`) voor business-logica en groepering per feature. Geen volledige DDD; controllers dun houden |
+| **.NET** | Modulaire monoliet met DDD-lite en Clean Architecture per module (zie voorbeeld hieronder), of vertical slices als dat te zwaar voelt |
+| **Go** | Standaardindeling met `cmd/` en `internal/`, pakketten per feature, interfaces alleen waar nodig (hexagonal-light) |
+| **NestJS** | Modules per bounded context (past van nature bij het framework), services en repositories per module |
+
+Voorbeeld van een .NET-structuur (modulaire monoliet, DDD-lite):
+
+```
+src/
+  CardManager.Api/                 # ASP.NET Core, endpoints, composition root
+  CardManager.Modules.Catalog/     # kaarten, sets, printings, Scryfall-import
+    Domain/  Application/  Infrastructure/
+  CardManager.Modules.Collection/  # collecties, entries, staat, hoeveelheid
+    Domain/  Application/  Infrastructure/
+  CardManager.Modules.Scanning/    # scanaanvragen, koppeling met scanner-service
+  CardManager.Modules.Pricing/     # prijzen en prijsgeschiedenis
+  CardManager.Modules.Identity/    # gebruikers en authenticatie
+  CardManager.SharedKernel/        # gedeelde basisklassen en afspraken
+tests/
+```
+
+Regels voor zo'n structuur: een module praat alleen met een andere module via een publiek contract (interface of event), nooit rechtstreeks met haar database of interne klassen.
+
+#### 5.6.2 .NET: minimal APIs of controllers
+
+| Optie | Voordelen | Nadelen |
+|---|---|---|
+| **Minimal APIs** | Weinig boilerplate, snel op te zetten, endpoints te groeperen (route groups), past goed bij vertical slices | Minder "kant-en-klaar" dan controllers, structuur moeten we zelf afspreken, kan rommelig worden zonder discipline |
+| **Controllers** (gewone Web API) | Bekend patroon, veel voorbeelden, filters en attributen, vaste structuur | Meer ceremonie, de klassen kunnen groot worden |
+| **Bibliotheken bovenop minimal APIs** (bijvoorbeeld FastEndpoints, Carter) | Eén klasse per endpoint, duidelijke structuur | Extra afhankelijkheid, kleinere community dan de ingebouwde opties |
+
+Beide benaderingen zijn volwaardig en worden door ASP.NET Core ondersteund; prestatie speelt hier geen beslissende rol. Check bij het kiezen de actuele aanbevelingen in de Microsoft-documentatie.
+
+**Voorstel:** minimal APIs, met endpoints per feature gegroepeerd in route groups (past bij modules en vertical slices). Kies controllers als we vooral een bekende, strakke structuur willen.
+
+#### 5.6.3 Database first of code first
+
+| Aanpak | Wat het inhoudt | Wanneer |
+|---|---|---|
+| **Code first** | We beschrijven het model in code (entities of models), en migraties maken het schema | Nieuw project zonder bestaande database; EF Core, Eloquent, Prisma, Drizzle |
+| **Database first** | Het schema bestaat al; we genereren de modelcode daaruit | Bestaande of externe database; EF Core scaffolding |
+| **SQL-first (schema als bron)** | We schrijven zelf SQL-migraties en queries, tooling genereert getypeerde code | Wanneer we de controle over SQL willen; sqlc (Go), Dapper, Flyway/goose |
+
+Onze situatie: we beginnen **vanaf nul** en hebben geen bestaande database. Database first is daarom niet logisch. Dat laat code first (met migraties) of SQL-first over.
+
+**Voorstel:**
+
+- **Laravel en .NET (EF Core):** code first met migraties.
+- **Go:** SQL-first: SQL-migraties als bron van waarheid, getypeerde code via sqlc.
+- **De kaartdata** (Scryfall) wordt apart geïmporteerd naar eigen tabellen. We bewaren het ruwe brondata-ID (bijvoorbeeld het Scryfall-id) en maken de import herhaalbaar (upsert), zodat we de database altijd opnieuw kunnen opbouwen.
+
+#### 5.6.4 Migraties
+
+**Ja, we werken met migraties.** Zonder migraties kan niemand veilig het schema wijzigen, en kunnen we niet betrouwbaar deployen.
+
+| Stack | Tool |
+|---|---|
+| Laravel | Ingebouwde migraties (`php artisan migrate`) |
+| .NET | EF Core migrations (eventueel migration bundles voor deploys) |
+| Go | goose, golang-migrate of Atlas |
+| NestJS | Prisma Migrate, Drizzle Kit of TypeORM migrations |
+| Stack-onafhankelijk | Flyway, Liquibase, DbUp |
+
+**Afspraken**
+
+- Migraties staan **in Git** en worden **gereviewd** (ook de automatisch gegenereerde).
+- Een migratie die al is toegepast (op een gedeelde of productieomgeving) **wijzigen we nooit meer**; we maken een nieuwe.
+- **Vooruit corrigeren** in plaats van terugdraaien in productie; we vertrouwen op back-ups en testen die ook.
+- Migraties **testen in CI** tegen een lege database.
+- **Uitvoeren bij deploy** als aparte stap (niet door meerdere app-instanties tegelijk), zodat er geen race ontstaat.
+- **Seed-data** (testgegevens, beginwaarden) houden we gescheiden van schema-migraties.
+- **Naamgeving en volgorde:** duidelijke namen, met tijdstempel of volgnummer, één migratie per wijziging.
+- **Samenwerking:** bij tegelijk werken aan het schema kunnen conflicten ontstaan (bij EF Core vooral in het model-snapshotbestand). Spreek af wie een migratie maakt, en trek eerst de laatste wijzigingen binnen.
+- **Lokaal** mag je de database leegmaken en opnieuw opbouwen; productie nooit.
+
+#### 5.6.5 Microservices of alles in één
+
+| Optie | Voordelen | Nadelen |
+|---|---|---|
+| **Monoliet** | Eenvoudigste ontwikkeling, deploy en debugging, transacties eenvoudig | Kan door slechte grenzen rommelig worden |
+| **Modulaire monoliet** | Eén deployment, maar duidelijke modules met vaste grenzen; later op te splitsen | Vraagt discipline om de grenzen te bewaken |
+| **Monoliet + enkele services** (bijvoorbeeld aparte scanner) | Services alleen waar daar een goede reden voor is | Meer onderdelen dan een zuivere monoliet |
+| **Volledige microservices** | Onafhankelijk schaalbaar en deploybaar, laat architectuurkennis zien | Veel complexiteit: netwerk, consistentie, observability, versiebeheer, meer deployment; zwaar voor drie mensen in hun vrije tijd |
+
+Een aparte scanner past wel: die gebruikt andere taal en bibliotheken (Python, OpenCV, ML), heeft een andere belasting en kan los schalen. Voor de rest zijn er weinig redenen om te splitsen.
+
+**Voorstel:** **modulaire monoliet** voor de API en **een aparte scanner-service** (Python). De modules krijgen duidelijke grenzen, zodat we ze later kunnen afsplitsen als daar een reden voor is. Communicatie met de scanner via REST of gRPC, bij voorkeur asynchroon (via een queue) voor langere scans.
+
+#### 5.6.6 Overige codeerafspraken
+
+| Onderwerp | Keuze om te maken | Voorstel |
+|---|---|---|
+| **Formatting en linting** | ESLint + Prettier (TS), `gofmt`/`golangci-lint` (Go), `dotnet format` + `.editorconfig` (.NET), Pint (Laravel) | Automatisch formatteren, afgedwongen in CI en met pre-commit hooks (lefthook of husky) |
+| **Branching** | Trunk-based of feature branches + pull requests | Feature branches met pull requests, `main` altijd werkend |
+| **Commits** | Vrij of Conventional Commits | Conventional Commits (`feat:`, `fix:`, `docs:`) |
+| **Code review** | Wie reviewt, hoeveel goedkeuringen | Minstens één review van een ander voor merge |
+| **Tests** | Wat testen we, hoeveel | Unit-tests voor logica, integratietests voor API en database, enkele end-to-end tests; CI faalt bij falende tests |
+| **API-contract** | OpenAPI als bron van waarheid | OpenAPI-specificatie, daaruit gegenereerde clients en types voor de frontend |
+| **Foutformaat** | Eigen formaat of standaard | Standaard foutformaat (RFC 9457 Problem Details) |
+| **API-versionering** | Geen, in het pad (`/v1/`) of in headers | `/v1/` in het pad vanaf het begin |
+| **Configuratie en secrets** | `.env`, omgevingsvariabelen | Config via omgevingsvariabelen, geen secrets in Git |
+| **Logging** | Gestructureerde logs (JSON) | Gestructureerd loggen, met correlatie-id per verzoek |
+| **Documentatie** | README, en vastleggen van keuzes | README per onderdeel + **ADR's** |
+
+**ADR's (Architecture Decision Records):** voor elke belangrijke keuze (framework, database, architectuurstijl, microservices of niet) schrijven we een korte notitie in `docs/adr/` met: de context, de opties, de keuze en de gevolgen. Zo kunnen we later zien waarom we iets deden, en laat het ook zien dat de keuzes bewust zijn gemaakt.
+
 ---
 
 ## 6. Deployment
@@ -382,6 +516,8 @@ Waar draait de scanner?
 | Hostingkosten lopen op | Klein beginnen (VPS), kosten bijhouden, geen dure cloudservices zonder reden |
 | Dataverlies of een beveiligingslek | Automatische back-ups, wachtwoorden correct hashen, updates bijhouden, geen secrets in Git |
 | Een van ons haakt af | Documentatie bijhouden, geen kennis bij één persoon laten |
+| Te veel architectuur voor een eenvoudige app (DDD, microservices) | DDD-lite en een modulaire monoliet, alleen extra patronen als ze een concreet probleem oplossen |
+| Verschillende codeerstijlen of conflicterende migraties | Afspraken in 5.6, formatting automatisch afdwingen, vaste werkwijze voor migraties |
 
 ## 11. Organisatie
 
@@ -405,6 +541,11 @@ Waar draait de scanner?
 - [ ] Appframework (Vue + Capacitor, React Native, Flutter of anders)
 - [ ] API-taal en framework (Go, NestJS, C# / .NET, Kotlin, Rust, Python, PHP/Laravel of anders)
 - [ ] Als Laravel: losse Vue-SPA (variant A) of Inertia (variant B)
+- [ ] Architectuurstijl per backend (framework-standaard, gelaagd, vertical slices, Clean, DDD of DDD-lite)
+- [ ] Als .NET: minimal APIs of controllers
+- [ ] Database first, code first of SQL-first, en werken met migraties (en de afspraken daarover)
+- [ ] Monoliet, modulaire monoliet of microservices (en welke aparte services, bijvoorbeeld de scanner)
+- [ ] Codeerafspraken: formatting, branching, commits, review, tests, foutformaat en ADR's
 - [ ] Database (PostgreSQL of anders) en waar die draait
 - [ ] Extra diensten: cache (Redis?), zoeken (Meilisearch?), tijdreeksen voor prijsgeschiedenis (PostgreSQL, TimescaleDB of InfluxDB?)
 - [ ] Hosting (VPS, PaaS, cloud of homelab)
@@ -427,7 +568,7 @@ Waar draait de scanner?
 
 ## 13. Eerstvolgende stappen
 
-1. Propositie bespreken en de besluiten hierboven nemen
+1. Propositie bespreken, de besluiten hierboven nemen en ze vastleggen als korte ADR's (zie 5.6.6)
 2. Eventueel een proof of concept per risicovolle keuze (bijvoorbeeld camera in Capacitor vs. React Native/Flutter)
 3. Repo aanmaken met licentie en README
 4. Fase 1 starten: monorepo, Docker Compose, API-skelet en CI
