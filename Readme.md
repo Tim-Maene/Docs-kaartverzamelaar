@@ -1,8 +1,8 @@
 # Propositie: Card Manager
 
 > Status: **concept**, ter bespreking
-> Opgesteld door: _[naam]_
-> Datum: _[datum]_
+> Opgesteld door: Tim Maene
+> Datum: 17/10/2026
 
 Alles wat als **[keuze]** is gemarkeerd, moeten we samen beslissen. Onderaan staat een overzicht van de besluiten die we nodig hebben. Bij elke keuze staat een voorstel, maar dat is een startpunt voor de discussie.
 
@@ -69,7 +69,7 @@ Elke fase levert iets werkends op, zodat we steeds een resultaat hebben om te to
 |---|---|---|
 | Web-frontend | **[keuze]** Vue 3 + TypeScript | 5.1 |
 | Mobiele app | **[keuze]** Vue + Capacitor | 5.2 |
-| API-server | **[keuze]** Go (alternatief: Laravel, zie 5.3.1) | 5.3 |
+| API-server | **[keuze]** Go (alternatieven: Laravel, zie 5.3.1; .NET, zie 5.3.2) | 5.3 |
 | Database | **[keuze]** PostgreSQL | 5.4 |
 | Zoeken en cache | PostgreSQL zelf, later eventueel Meilisearch of Redis | 5.5 |
 | Scanner | Python-microservice (OpenCV, FastAPI) | 8 |
@@ -105,6 +105,7 @@ Ook relevant:
 | **Flutter** | Uitstekende prestaties, uniforme UI, nieuwe taal (Dart) | Geen hergebruik met Vue, extra taal erbij |
 | **NativeScript-Vue** | Native UI met Vue | Kleinere community, onderhoud eerst controleren |
 | **Native** (Swift + Kotlin) | Beste prestaties en toegang | Twee aparte apps, veel werk voor drie mensen |
+| **.NET MAUI** | Eén C#-codebase voor iOS en Android, past bij een .NET-backend | Kleinere community, geen hergebruik met onze Vue-website, tooling soms wisselvallig |
 
 **Voorstel:** Vue + Capacitor. Als de scanner later te traag blijkt, kan alleen het scannerscherm naar een native module worden verplaatst.
 
@@ -115,7 +116,7 @@ Ook relevant:
 | **Go** (net/http, chi, Gin, Echo of Fiber) | Snel, eenvoudige taal, één binary, past goed bij containers, onderscheidend | Types dubbel bijhouden (op te lossen met OpenAPI-codegeneratie), minder "magie" |
 | **TypeScript + NestJS** | Types delen met de frontend, nette architectuur (modules, DI), snel te starten | Overal dezelfde taal, minder onderscheidend |
 | **TypeScript + Fastify / Hono / Express** | Lichter en vrijer dan NestJS, veel voorbeelden | Meer zelf te structureren |
-| **C# / ASP.NET Core** | Sterk getypeerd, uitstekende tooling (Visual Studio, Rider), zeer goede prestaties | Wat zwaarder om mee te starten, minder gebruikelijk in hobbyprojecten |
+| **C# / .NET (ASP.NET Core)** | Sterk getypeerd, uitstekende tooling (Visual Studio, Rider, VS Code), zeer goede prestaties, volledig pakket (ORM, auth, background services), draait op Linux in containers, goed gevraagd in het bedrijfsleven | Wat meer opzet om mee te starten, minder gebruikelijk in hobbyprojecten, geen gedeelde types met de frontend (op te lossen met OpenAPI-codegeneratie) |
 | **Kotlin + Spring Boot (of Ktor)** | Veel gebruikt in het bedrijfsleven, volwassen ecosysteem | Veel opzet en boilerplate, hoger geheugengebruik |
 | **Java + Spring Boot** | Zeer veel vacatures, enorme community | Meer ceremonie dan de andere opties |
 | **Rust (Axum / Actix)** | Zeer indrukwekkend, uitstekende prestaties en veiligheid | Steile leercurve, waarschijnlijk te zwaar voor een hobbyproject |
@@ -134,7 +135,7 @@ Ook relevant:
   - Python: SQLAlchemy
 - **Authenticatie**: eigen implementatie (sessies of JWT), of een dienst/bibliotheek zoals Keycloak, Authentik, Auth.js, Supabase Auth of Clerk. Voor leerwaarde is een eigen eenvoudige implementatie nuttig, maar let op beveiliging (wachtwoorden hashen met argon2 of bcrypt, nooit zelf versleutelen).
 
-**Voorstel:** Go met chi of Echo en sqlc, of NestJS als we snel willen vooruitgaan en types willen delen. **Laravel** (zie 5.3.1) is een goed alternatief als we vooral snel resultaat willen en ingebouwde queues, jobs en commands waarderen.
+**Voorstel:** Go met chi of Echo en sqlc, of NestJS als we snel willen vooruitgaan en types willen delen. **Laravel** (zie 5.3.1) is een goed alternatief als we vooral snel resultaat willen en ingebouwde queues, jobs en commands waarderen. **.NET** (zie 5.3.2) is een goede keuze als we een streng getypeerde, professionele stack willen met uitstekende tooling.
 
 ### 5.3.1 PHP / Laravel als backend
 
@@ -170,11 +171,51 @@ Blade of Livewire (PHP rendert de HTML) past niet bij ons Vue-plan en is niet br
 | NestJS | BullMQ | `@nestjs/schedule`, CLI-commands |
 | Go | Asynq, River | Cobra-commands, cron |
 | Python | Celery, RQ | Management-scripts, cron |
-| C# | Hangfire | Hangfire, Quartz.NET |
+| C# / .NET | Hangfire, `BackgroundService` + Channels | Hangfire, Quartz.NET, `BackgroundService` |
 
 Het verschil is dat Laravel het kant-en-klaar en samenhangend aanbiedt, bij de andere stacks voegen we het zelf toe.
 
 **Voorstel bij keuze voor PHP:** variant A (Laravel als API + Vue-SPA), met Sanctum, Redis-queues en een queue-worker en scheduler als aparte containers.
+
+### 5.3.2 C# / .NET als backend
+
+.NET is een volwaardige keuze voor de API en past goed bij onze wens om niet te makkelijk, maar ook niet te moeilijk te kiezen. Het is sterk getypeerd (net als TypeScript, wat de overstap makkelijk maakt) en heeft veel ingebouwd.
+
+**Onderdelen van de stack**
+
+| Onderdeel | Opties |
+|---|---|
+| Framework | **ASP.NET Core Web API** met controllers, of **minimal APIs** (minder boilerplate, goed voor een kleinere API) |
+| ORM / data | **Entity Framework Core** (werkt met PostgreSQL via Npgsql, ook met SQL Server of SQLite), **Dapper** (lichter, schrijf zelf SQL) |
+| OpenAPI | Ingebouwde OpenAPI-ondersteuning in recente versies, of **NSwag / Swashbuckle**; NSwag kan ook een **TypeScript-client** genereren voor Vue |
+| Authenticatie | **ASP.NET Core Identity**, JWT-bearer of een externe provider (Keycloak, Authentik) |
+| Achtergrondtaken | `BackgroundService` / `IHostedService` (ingebouwd), **Hangfire** (jobs met dashboard), **Quartz.NET** (planning) |
+| Realtime | **SignalR**, mocht dat later nodig zijn |
+| Tests | xUnit of NUnit, `WebApplicationFactory` voor API-tests, Testcontainers voor een echte database |
+| Lokaal ontwikkelen | Docker Compose, of **Aspire** om meerdere services en een database samen op te starten |
+
+**Combineren met onze frontend**
+
+- Net als bij Laravel: .NET als API + losse Vue-SPA (aanbevolen), waarbij dezelfde API ook voor de Capacitor-app werkt.
+- **Blazor** (C# in de browser of op de server) vervangt Vue, maar dat past niet bij onze keuze voor Vue + TypeScript en is niet geschikt voor onze Capacitor-aanpak. Alleen interessant als we expres alles in C# willen.
+- **.NET MAUI** is de .NET-optie voor een mobiele app (zie 5.2), maar met Vue + Capacitor houden we één frontend-aanpak.
+
+**Wat we winnen met .NET**
+
+- **Streng en veilig getypeerd**, uitstekende refactoring en tooling.
+- **Zeer goede prestaties** en een kleine, snelle container op Linux; niet alleen voor Windows.
+- **Veel kant-en-klaar** (DI, configuratie, logging, auth, background services), zonder het "alles in één" van Laravel.
+- Veel vraag op de arbeidsmarkt, goed om te kunnen tonen.
+- Het geheel is breder en professioneler dan een lichter framework, en toch minder complex dan Rust.
+
+**Wat we verliezen**
+
+- **Meer opzet en conventies** dan Go of Fastify; de leercurve is hoger als niemand C# kent.
+- **Geen gedeelde types** met de frontend; oplossing: OpenAPI + `openapi-typescript` of NSwag.
+- **Extra taal** naast TypeScript en Python.
+- **Meer geheugen** dan een Go-binary, al is dat voor ons verwaarloosbaar.
+
+**Voorstel bij keuze voor .NET:** ASP.NET Core Web API met EF Core + PostgreSQL, OpenAPI met een gegenereerde TypeScript-client, Hangfire of een `BackgroundService` voor de Scryfall-import, en een losse Vue-SPA.
 
 ### 5.4 Database
 
@@ -207,10 +248,23 @@ Hosting van de database:
 | Doel | Opties | Voorstel |
 |---|---|---|
 | Kaarten zoeken (naam, tekst, filters) | PostgreSQL full-text + `pg_trgm`, **Meilisearch**, **Typesense**, Elasticsearch/OpenSearch | Beginnen met PostgreSQL, later Meilisearch als het te traag of te beperkt is |
-| Cache en sessies | **Redis** / Valkey, in-memory cache in de app, geen cache | Pas toevoegen als er een echt probleem is |
+| Cache en sessies | **Redis** / Valkey, in-memory cache in de app (bijvoorbeeld `IMemoryCache` in .NET), geen cache | Pas toevoegen als er een echt probleem is |
+| Tijdreeksen (prijsgeschiedenis, statistieken) | **InfluxDB**, **TimescaleDB** (PostgreSQL-extensie), QuestDB, gewoon een PostgreSQL-tabel | Beginnen met een gewone PostgreSQL-tabel, later TimescaleDB of InfluxDB als de datahoeveelheid groot wordt |
 | Vectorzoeken voor de scanner | **pgvector**, Qdrant, Milvus, Weaviate, FAISS (in-memory) | pgvector, eenvoudig omdat het in dezelfde database zit |
 | Achtergrondtaken (data-import, prijsupdates) | Cron + script, een job queue (Asynq, BullMQ, Celery, Laravel queues), de scheduler van de host | Cron of een kleine queue; bij Laravel de ingebouwde queues en scheduler |
 | Bestanden (scans, uploads) | Lokale schijf, S3-compatibele opslag (Cloudflare R2, Backblaze B2, MinIO) | Lokaal in het begin |
+
+**Over InfluxDB**
+
+InfluxDB is een **tijdreeksdatabase** en geen cache. Het is gemaakt om grote hoeveelheden gemeten waarden met een tijdstempel op te slaan en te bevragen, zoals metrics of sensordata. Als **cache** (snelle sleutel/waarde-opslag voor veelgevraagde data of sessies) is het niet geschikt; daarvoor zijn Redis/Valkey of een cache in het geheugen de gebruikelijke keuze.
+
+Waar InfluxDB wél interessant voor is bij ons project:
+
+- **Prijsgeschiedenis van kaarten**: elke dag de prijs van duizenden printings bijhouden en er grafieken van maken.
+- **Waarde van een collectie in de tijd**: totale waarde per gebruiker per dag.
+- **Metrics van de applicatie** (verzoeken, foutpercentages, scan-succes), bijvoorbeeld samen met Grafana.
+
+Wat het kost: een extra dienst om te draaien, te back-uppen en te leren. **Voorstel:** prijsgeschiedenis eerst in een gewone PostgreSQL-tabel (met een index op kaart + datum). Pas als die tabel echt te groot of te traag wordt, kijken we naar TimescaleDB (blijft in PostgreSQL) of InfluxDB.
 
 ---
 
@@ -349,9 +403,10 @@ Waar draait de scanner?
 
 - [ ] Webframework (Vue, React of anders)
 - [ ] Appframework (Vue + Capacitor, React Native, Flutter of anders)
-- [ ] API-taal en framework (Go, NestJS, C#, Kotlin, Rust, Python, PHP/Laravel of anders)
+- [ ] API-taal en framework (Go, NestJS, C# / .NET, Kotlin, Rust, Python, PHP/Laravel of anders)
 - [ ] Als Laravel: losse Vue-SPA (variant A) of Inertia (variant B)
 - [ ] Database (PostgreSQL of anders) en waar die draait
+- [ ] Extra diensten: cache (Redis?), zoeken (Meilisearch?), tijdreeksen voor prijsgeschiedenis (PostgreSQL, TimescaleDB of InfluxDB?)
 - [ ] Hosting (VPS, PaaS, cloud of homelab)
 - [ ] Deploymentmethode en CI/CD (GitHub Actions + Docker Compose?)
 - [ ] Licentie
