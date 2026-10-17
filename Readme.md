@@ -69,7 +69,7 @@ Elke fase levert iets werkends op, zodat we steeds een resultaat hebben om te to
 |---|---|---|
 | Web-frontend | **[keuze]** Vue 3 + TypeScript | 5.1 |
 | Mobiele app | **[keuze]** Vue + Capacitor | 5.2 |
-| API-server | **[keuze]** Go | 5.3 |
+| API-server | **[keuze]** Go (alternatief: Laravel, zie 5.3.1) | 5.3 |
 | Database | **[keuze]** PostgreSQL | 5.4 |
 | Zoeken en cache | PostgreSQL zelf, later eventueel Meilisearch of Redis | 5.5 |
 | Scanner | Python-microservice (OpenCV, FastAPI) | 8 |
@@ -90,6 +90,7 @@ Ook relevant:
 - **Meta-framework**: Nuxt (Vue) of Next.js (React) bieden server-side rendering en SEO. Voor een app achter een login is dat niet nodig, voor publieke kaartpagina's wel interessant. Een gewone SPA met Vite is eenvoudiger.
 - **UI-bibliotheek**: Tailwind (eigen componenten), PrimeVue, Vuetify of Naive UI voor Vue; shadcn/ui of MUI voor React.
 - **Data ophalen**: TanStack Query bestaat voor zowel Vue als React en vermijdt veel handmatige laadlogica.
+- **Met een PHP-backend**: als we voor Laravel kiezen, kunnen we Vue als losse SPA houden (aanbevolen) of Inertia.js gebruiken. Zie 5.3.1.
 
 **Voorstel:** Vue 3 + TypeScript + Vite + Pinia, als SPA. Kies React als we de app in React Native willen bouwen en codehergebruik van logica willen.
 
@@ -119,7 +120,7 @@ Ook relevant:
 | **Java + Spring Boot** | Zeer veel vacatures, enorme community | Meer ceremonie dan de andere opties |
 | **Rust (Axum / Actix)** | Zeer indrukwekkend, uitstekende prestaties en veiligheid | Steile leercurve, waarschijnlijk te zwaar voor een hobbyproject |
 | **Python (FastAPI)** | Snel te bouwen, automatische OpenAPI-docs, past bij de scanner | Zwakker getypeerd en trager dan Go of C#; we hebben Python al voor de scanner |
-| **PHP (Laravel)** | Zeer productief, veel ingebouwd (auth, ORM, queues) | Minder "indrukwekkend" voor ons doel |
+| **PHP (Laravel)** | Zeer productief, veel ingebouwd (auth, ORM, queues/jobs, scheduler, Artisan-commands), grote community en veel vacatures | Minder "onderscheidend" voor ons doel, geen gedeelde types, meer onderdelen om te deployen (PHP-FPM, queue-worker, scheduler), extra taal als niemand PHP kent |
 | **Elixir (Phoenix)** | Uitstekend voor realtime, mooie taal | Klein ecosysteem, sterke omschakeling voor het team |
 
 Ook relevant:
@@ -133,7 +134,47 @@ Ook relevant:
   - Python: SQLAlchemy
 - **Authenticatie**: eigen implementatie (sessies of JWT), of een dienst/bibliotheek zoals Keycloak, Authentik, Auth.js, Supabase Auth of Clerk. Voor leerwaarde is een eigen eenvoudige implementatie nuttig, maar let op beveiliging (wachtwoorden hashen met argon2 of bcrypt, nooit zelf versleutelen).
 
-**Voorstel:** Go met chi of Echo en sqlc, of NestJS als we snel willen vooruitgaan en types willen delen.
+**Voorstel:** Go met chi of Echo en sqlc, of NestJS als we snel willen vooruitgaan en types willen delen. **Laravel** (zie 5.3.1) is een goed alternatief als we vooral snel resultaat willen en ingebouwde queues, jobs en commands waarderen.
+
+### 5.3.1 PHP / Laravel als backend
+
+PHP draait alleen op de server, **nooit in de browser of in een Capacitor-app**. Het kan dus niet de frontend vervangen, maar wel de backend. Er zijn twee manieren om het met Vue te combineren:
+
+| Variant | Hoe het werkt | Voordelen | Nadelen |
+|---|---|---|---|
+| **A. Laravel als API + losse Vue-SPA** (aanbevolen) | Laravel levert alleen een REST-API, Vue 3 + TypeScript blijft een gewone SPA | Dezelfde API voor web én app (Capacitor), Vue + Composition API + TS blijven volledig behouden | Twee projecten, types genereren via OpenAPI |
+| **B. Laravel + Inertia.js + Vue** (monoliet) | Laravel regelt routes en pagina's, Vue rendert de views | Minder losse API-code voor het web, snel te ontwikkelen, Vue (Composition API + TS) blijft mogelijk | Een app in Capacitor heeft alsnog een echte API nodig; een Inertia-site in een app voelt als een website in een omhulsel en werkt slecht met camera en offline |
+
+Blade of Livewire (PHP rendert de HTML) past niet bij ons Vue-plan en is niet bruikbaar voor een app.
+
+**Wat we winnen met Laravel**
+
+- **Queues en jobs**: ideaal voor de Scryfall-import, prijsupdates en het doorsturen van scanfoto's naar de Python-service. Werkt met Redis of de database als queue, inclusief retries en afhandeling van mislukte jobs.
+- **Scheduler en Artisan-commands**: terugkerende taken (bijvoorbeeld "importeer elke nacht de bulkdata") schrijven we als command en plannen we met één cronregel.
+- **Veel kant-en-klaar**: authenticatie (Sanctum voor API-tokens), validatie, migraties, ORM (Eloquent), mail en tests.
+- **Zeer productief**: snel bij een werkende fase 1 tot 3.
+- PHP en Laravel zijn bekend en gevraagd op de arbeidsmarkt.
+
+**Wat we verliezen**
+
+- **Minder onderscheidend**: Laravel doet veel voor ons, dus we leren minder over wat eronder gebeurt dan in Go of een lichter framework.
+- **Geen gedeelde types** met de frontend. Oplossing: een OpenAPI-specificatie genereren (bijvoorbeeld met Scramble of L5-Swagger) en daar types uit maken met `openapi-typescript`.
+- **Meer deploymentonderdelen**: PHP-FPM (of Laravel Octane), een queue-worker en een scheduler naast de webserver. In Docker Compose goed te regelen, maar meer containers dan één Go-binary.
+- **Extra taal** als niemand van ons PHP al kent.
+
+**Jobs, queues en commands bestaan ook in andere stacks**
+
+| Stack | Queue/jobs | Commands/scheduler |
+|---|---|---|
+| Laravel | Ingebouwd (Redis of database) | Artisan + scheduler |
+| NestJS | BullMQ | `@nestjs/schedule`, CLI-commands |
+| Go | Asynq, River | Cobra-commands, cron |
+| Python | Celery, RQ | Management-scripts, cron |
+| C# | Hangfire | Hangfire, Quartz.NET |
+
+Het verschil is dat Laravel het kant-en-klaar en samenhangend aanbiedt, bij de andere stacks voegen we het zelf toe.
+
+**Voorstel bij keuze voor PHP:** variant A (Laravel als API + Vue-SPA), met Sanctum, Redis-queues en een queue-worker en scheduler als aparte containers.
 
 ### 5.4 Database
 
@@ -168,7 +209,7 @@ Hosting van de database:
 | Kaarten zoeken (naam, tekst, filters) | PostgreSQL full-text + `pg_trgm`, **Meilisearch**, **Typesense**, Elasticsearch/OpenSearch | Beginnen met PostgreSQL, later Meilisearch als het te traag of te beperkt is |
 | Cache en sessies | **Redis** / Valkey, in-memory cache in de app, geen cache | Pas toevoegen als er een echt probleem is |
 | Vectorzoeken voor de scanner | **pgvector**, Qdrant, Milvus, Weaviate, FAISS (in-memory) | pgvector, eenvoudig omdat het in dezelfde database zit |
-| Achtergrondtaken (data-import, prijsupdates) | Cron + script, een job queue (Asynq, BullMQ, Celery), de scheduler van de host | Cron of een kleine queue |
+| Achtergrondtaken (data-import, prijsupdates) | Cron + script, een job queue (Asynq, BullMQ, Celery, Laravel queues), de scheduler van de host | Cron of een kleine queue; bij Laravel de ingebouwde queues en scheduler |
 | Bestanden (scans, uploads) | Lokale schijf, S3-compatibele opslag (Cloudflare R2, Backblaze B2, MinIO) | Lokaal in het begin |
 
 ---
@@ -195,7 +236,7 @@ Hosting van de database:
 
 ### 6.3 Onderdelen van een goede deployment
 
-- **Containers**: elk onderdeel (API, scanner, database, frontend) in een eigen Docker-image, samengebracht in Docker Compose
+- **Containers**: elk onderdeel (API, scanner, database, frontend) in een eigen Docker-image, samengebracht in Docker Compose. Bij Laravel komen daar een queue-worker en een scheduler bij.
 - **Reverse proxy en HTTPS**: Caddy (eenvoudigst, automatische certificaten), Traefik of Nginx
 - **Domeinnaam en DNS**: bijvoorbeeld via Cloudflare
 - **Secrets**: geen wachtwoorden in de repo; gebruik `.env`-bestanden buiten Git, GitHub Secrets of een secretsmanager
@@ -308,7 +349,8 @@ Waar draait de scanner?
 
 - [ ] Webframework (Vue, React of anders)
 - [ ] Appframework (Vue + Capacitor, React Native, Flutter of anders)
-- [ ] API-taal en framework (Go, NestJS, C#, Kotlin, Rust, Python of anders)
+- [ ] API-taal en framework (Go, NestJS, C#, Kotlin, Rust, Python, PHP/Laravel of anders)
+- [ ] Als Laravel: losse Vue-SPA (variant A) of Inertia (variant B)
 - [ ] Database (PostgreSQL of anders) en waar die draait
 - [ ] Hosting (VPS, PaaS, cloud of homelab)
 - [ ] Deploymentmethode en CI/CD (GitHub Actions + Docker Compose?)
